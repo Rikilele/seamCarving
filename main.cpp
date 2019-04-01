@@ -2,6 +2,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <iostream>
+#include <algorithm>
 
 
 using namespace cv;
@@ -85,7 +86,7 @@ int* find_seam(Mat &image){
 
 
 void remove_pixels(Mat& image, Mat& output, int* seam){
-    for(int r = 0; r < image.rows; r++ ) {
+    for (int r = 0; r < image.rows; r++ ) {
         for (int c = 0; c < image.cols; c++){
             if (c >= seam[r])
                 output.at<Vec3b>(r, c) = image.at<Vec3b>(r, c+1);
@@ -96,23 +97,13 @@ void remove_pixels(Mat& image, Mat& output, int* seam){
 }
 
 
-void rot90(Mat &matImage, int rotflag){
-    //1=CW, 2=CCW, 3=180
-    if (rotflag == 1) {
-        transpose(matImage, matImage);
-        flip(matImage, matImage, 1); // transpose+flip(1)=CW
-    } else if (rotflag == 2) {
-        transpose(matImage, matImage);
-        flip(matImage, matImage, 0); // transpose+flip(0)=CCW
-    } else if (rotflag ==3) {
-        flip(matImage, matImage, -1); // flip(-1)=180
-    } else if (rotflag != 0) { // if not 0,1,2,3:
-        cout  << "Unknown rotation flag(" << rotflag << ")" << endl;
-    }
-}
-
-
-void remove_seam(Mat& image){
+/**
+ * @param image - The image to remove a seam from
+ * @param min - The minimum col of the previous iteration
+ * @param max - The maximum col of the previous iteration
+ * @return - Tuple of new min and max cols from this iteration
+ */
+tuple<int, int> remove_seam(Mat& image, int min = -1, int max = -1){
     int height = image.rows;
     int width = image.cols;
 
@@ -129,36 +120,78 @@ void remove_seam(Mat& image){
     Mat output(height, width-1, CV_8UC3);
     remove_pixels(image, output, seam);
     image = output;
+
+    // Result
+    int new_min = *min_element(seam, seam+height);
+    int new_max = *max_element(seam, seam+height);
+    return make_tuple(new_min, new_max);
 }
 
 
-void shrink_image(Mat& image, int new_width, int width){
-    cout << endl << "Processing image..." << endl;
-    for(int i = 0; i < width - new_width; i++){
-        remove_seam(image);
+void rotate_vid(VideoCapture vid, Mat* output, int width, int height, int depth) {
+    for (int z = 0; z < depth; z++) {
+        Mat frame;
+        vid >> frame;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                output[width-x-1].at<Vec3b>(y, z) = frame.at<Vec3b>(y, x);
+            }
+        }
     }
 }
 
 
 int main(int argc, char** argv) {
+    // Check command line arguments
     if (argc < 2) {
-        cerr << "Usage: ./seamCarving <IMAGE_FILE>" << endl;
+        cerr << "Usage: ./seamCarving <VIDEO_FILE>" << endl;
         return 1;
     }
 
-    Mat image;
-    image = imread(argv[1], 1);
-    if (!image.data) {
-        cout << "No image found" << endl;
+    // Open the video file
+    VideoCapture cap(argv[1]);
+
+    // Check if media opened successfully
+    if(!cap.isOpened()){
+        cout << "Error opening video stream or file" << endl;
         return -1;
     }
 
-    cout << "The size of the image is: (" << image.cols << ", " << image.rows << ")" << endl;
-    int new_width;
-    cout << "Enter new width: ";
-    cin >> new_width;
-    shrink_image(image, new_width, image.cols);
+    // Calculate necessary info
+    int width = ceil(cap.get(CAP_PROP_FRAME_WIDTH));
+    int height = ceil(cap.get(CAP_PROP_FRAME_HEIGHT));
+    int depth = ceil(cap.get(CAP_PROP_FRAME_COUNT));
+    int target = depth * 2 / 3;
+
+    cout << "W: " << width << " H: " << height << " D: " << depth << " T: " << target << endl;
+
+    // Initialize new video data structure
+    Mat* rotated_vid = new Mat[width];
+    for (int i = 0; i < width; i++) {
+        rotated_vid[i] = Mat(height, depth, CV_8UC3);
+    }
+
+    rotate_vid(cap, rotated_vid,  width, height, depth);
+
+    /*
+     * For each seam to be removed,
+     * go through each frame to identify a seam
+     * while incrementally restricting the band width
+     */
+    int min, max;
+    for (int left = depth; left > target; left--) {
+        for (int i = 0; i < width; i++) {
+            Mat frame = rotated_vid[i];
+            tie(min, max) = remove_seam(frame, min, max);
+        }
+    }
+
+//    cout << "The size of the image is: (" << image.cols << ", " << image.rows << ")" << endl;
+//    int new_width;
+//    cout << "Enter new width: ";
+//    cin >> new_width;
+//    shrink_image(image, new_width, image.cols);
     cout << "Done!" << endl;
-    imwrite("output.jpg", image);
+//    imwrite("output.jpg", image);
     return 0;
 }
