@@ -3,7 +3,7 @@ C++ implementation of size carving/dynamic programming algorithm according to "S
 
 ###Usage
 ```
-.seamCarving [IMAGE_FILE] [REALTIME, 'y' for 'yes']
+./seamCarving [IMAGE_FILE]
 ```
 
 ###Preview
