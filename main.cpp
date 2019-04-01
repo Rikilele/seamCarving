@@ -9,7 +9,7 @@ using namespace cv;
 using namespace std;
 
 
-void energy_function(Mat &image, Mat &output){
+void energy_function(Mat &image, Mat &output) {
     Mat dx, dy;
     Sobel(image, dx, CV_64F, 1, 0);
     Sobel(image, dy, CV_64F, 0, 1);
@@ -23,15 +23,15 @@ void energy_function(Mat &image, Mat &output){
 }
 
 
-int* find_seam(Mat &image){
+int* find_seam(Mat &image, int min_col, int max_col) {
     int H = image.rows, W = image.cols;
 
     int dp[H][W];
-    for(int c = 0; c < W; c++){
+    for(int c = 0; c < W; c++) {
         dp[0][c] = (int)image.at<uchar>(0, c);
     }
 
-    for(int r = 1; r < H; r++){
+    for(int r = 1; r < H; r++) {
         for(int c = 0; c < W; c++){
             if (c == 0)
                 dp[r][c] = min(dp[r-1][c+1], dp[r-1][c]);
@@ -85,7 +85,7 @@ int* find_seam(Mat &image){
 }
 
 
-void remove_pixels(Mat& image, Mat& output, int* seam){
+void remove_pixels(Mat& image, Mat& output, int* seam) {
     for (int r = 0; r < image.rows; r++ ) {
         for (int c = 0; c < image.cols; c++){
             if (c >= seam[r])
@@ -103,7 +103,7 @@ void remove_pixels(Mat& image, Mat& output, int* seam){
  * @param max - The maximum col of the previous iteration
  * @return - Tuple of new min and max cols from this iteration
  */
-tuple<int, int> remove_seam(Mat& image, int min = -1, int max = -1){
+tuple<int, int> remove_seam(Mat& image, int min, int max) {
     int height = image.rows;
     int width = image.cols;
 
@@ -114,7 +114,7 @@ tuple<int, int> remove_seam(Mat& image, int min = -1, int max = -1){
     // Run through energy function
     Mat emap;
     energy_function(gray, emap);
-    int* seam = find_seam(emap);
+    int* seam = find_seam(emap, min, max);
 
     // Set up output matrix
     Mat output(height, width-1, CV_8UC3);
@@ -141,6 +141,19 @@ void rotate_vid(VideoCapture vid, Mat* output, int width, int height, int depth)
 }
 
 
+void reverse_rotate_vid(Mat* input, Mat* output, int width, int height, int depth) {
+    for (int z = 0; z < depth; z++) {
+        Mat frame = input[z];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+//                cout << "x: " << x << " y: " << y << " z: " << depth-z-1 << endl;
+                output[x].at<Vec3b>(y, depth-z-1) = frame.at<Vec3b>(y, x);
+            }
+        }
+    }
+}
+
+
 int main(int argc, char** argv) {
     // Check command line arguments
     if (argc < 2) {
@@ -158,6 +171,7 @@ int main(int argc, char** argv) {
     }
 
     // Calculate necessary info
+    int fps = ceil(cap.get(CAP_PROP_FPS));
     int width = ceil(cap.get(CAP_PROP_FRAME_WIDTH));
     int height = ceil(cap.get(CAP_PROP_FRAME_HEIGHT));
     int depth = ceil(cap.get(CAP_PROP_FRAME_COUNT));
@@ -178,7 +192,8 @@ int main(int argc, char** argv) {
      * go through each frame to identify a seam
      * while incrementally restricting the band width
      */
-    int min, max;
+    int min = 0;
+    int max = depth;
     for (int left = depth; left > target; left--) {
         for (int i = 0; i < width; i++) {
             Mat frame = rotated_vid[i];
@@ -186,12 +201,30 @@ int main(int argc, char** argv) {
         }
     }
 
-//    cout << "The size of the image is: (" << image.cols << ", " << image.rows << ")" << endl;
-//    int new_width;
-//    cout << "Enter new width: ";
-//    cin >> new_width;
-//    shrink_image(image, new_width, image.cols);
-    cout << "Done!" << endl;
-//    imwrite("output.jpg", image);
+    cout << "W: " << target << " H: " << height << " D: " << width << endl;
+
+    // Initialize final video data structure
+    Mat* final_vid = new Mat[target];
+    for (int i = 0; i < target; i++) {
+        final_vid[i] = Mat(height, width, CV_8UC3);
+    }
+
+    reverse_rotate_vid(rotated_vid, final_vid, target, height, width);
+
+    // Produce output video as .avi
+    VideoWriter video("out.avi", VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(width, height));
+    for (int i = 0; i < target; i++) {
+        Mat frame = final_vid[i];
+
+        // If the frame is empty, break immediately
+        if (frame.empty())
+            break;
+
+        // Write the frame into the file 'out.avi'
+        video.write(frame);
+    }
+
+    cap.release();
+    video.release();
     return 0;
 }
