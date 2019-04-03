@@ -25,74 +25,7 @@ void energy_function(Mat &image, Mat &output) {
     output.convertTo(output, CV_8U);
 }
 
-int* find_seam(Mat &image, int min_col, int max_col) {
-    int tolerance = 0;
-    int H = image.rows, W = image.cols;
-    int left = (min_col > tolerance) ? min_col - tolerance : 0;
-    int right = (max_col < W - tolerance) ? max_col + tolerance : W;
-
-    // Get energy for first row
-    int dp[H][max_col+tolerance*2];
-    for(int c = left; c < right; c++) {
-        dp[0][c] = (int)image.at<uchar>(0, c);
-    }
-
-    // Sift energy down
-    for(int r = 1; r < H; r++) {
-        for(int c = left; c < right; c++){
-            if (c == 0)
-                dp[r][c] = min(dp[r-1][c+1], dp[r-1][c]);
-            else if (c == W-1)
-                dp[r][c] = min(dp[r-1][c-1], dp[r-1][c]);
-            else
-                dp[r][c] = min({dp[r-1][c-1], dp[r-1][c], dp[r-1][c+1]});
-            dp[r][c] += (int)image.at<uchar>(r, c);
-        }
-    }
-
-    int min_value = 2147483647; // Infinity
-    int min_index = -1;
-    for(int c = left; c < right; c++) {
-        if (dp[H - 1][c] < min_value) {
-            min_value = dp[H - 1][c];
-            min_index = c;
-        }
-    }
-
-    int path[H];
-    Point pos(H-1, min_index);
-    path[pos.x] = pos.y;
-
-    while (pos.x != 0) {
-        int value = dp[pos.x][pos.y] - (int)image.at<uchar>(pos.x, pos.y);
-        int r = pos.x, c = pos.y;
-        if (c == 0) {
-            if (value == dp[r-1][c+1])
-                pos = Point(r-1, c+1);
-            else
-                pos = Point(r-1, c);
-        }
-        else if (c == W-1) {
-            if (value == dp[r-1][c-1])
-                pos = Point(r-1, c-1);
-            else
-                pos = Point(r-1, c);
-        }
-        else {
-            if (value == dp[r-1][c-1])
-                pos = Point(r-1, c-1);
-            else if (value == dp[r-1][c+1])
-                pos = Point(r-1, c+1);
-            else
-                pos = Point(r-1, c);
-        }
-        path[pos.x] = pos.y;
-    }
-
-    return path;
-}
-
-void remove_pixels(Mat& image, Mat& output, int* seam) {
+void remove_pixels(Mat& image, Mat &output, int* seam) {
     for (int r = 0; r < image.rows; r++ ) {
         for (int c = 0; c < image.cols; c++){
             if (c >= seam[r])
@@ -104,57 +37,168 @@ void remove_pixels(Mat& image, Mat& output, int* seam) {
 }
 
 /**
- * @param image - The image to remove a seam from
- * @param min - The minimum col of the previous iteration
- * @param max - The maximum col of the previous iteration
- * @return - Tuple of new min and max cols from this iteration
+ * Given an energy map, finds a min-cut (a seam).
+ *
+ * @param energy_map - The energy map represented by Mat object.
+ * @return An array of integers representing the min-cut.
  */
-tuple<int, int> remove_seam(Mat& image, int min, int max) {
+int* find_min_cut(Mat &energy_map){
+    int height = energy_map.rows;
+    int width = energy_map.cols;
 
-    int height = image.rows;
-    int width = image.cols;
+    // Fill energy for first row.
+    int dp[height][width];
+    for (int c = 0; c < width; c++) {
+        dp[0][c] = (int)energy_map.at<uchar>(0, c);
+    }
 
-    // Make it gray scale first
-    Mat gray;
-    cvtColor(image, gray, COLOR_BGR2GRAY);
+    // Sift energy down.
+    for (int r = 1; r < height; r++) {
+        for(int c = 0; c < width; c++) {
+            dp[r][c] += (int)energy_map.at<uchar>(r, c);
 
-    // Run through energy function
-    Mat emap;
-    energy_function(gray, emap);
+            // Add minimum energy from relevant cols above.
+            if (c == 0) {
+                dp[r][c] += min(dp[r-1][c+1], dp[r-1][c]);
+            } else if (c == width - 1) {
+                dp[r][c] += min(dp[r-1][c-1], dp[r-1][c]);
+            } else {
+                dp[r][c] += min({dp[r-1][c-1], dp[r-1][c], dp[r-1][c+1]});
+            }
+        }
+    }
 
-    int* seam = find_seam(emap, min, max);
+    // Find the minimum energy col on the bottom row.
+    int min_val = 2147483647;
+    int min_col = -1;
+    for (int c = 0; c < width; c++) {
+        if (dp[height-1][c] < min_val) {
+            min_val = dp[height-1][c];
+            min_col = c;
+        }
+    }
 
-    // Set up output matrix
-    Mat output(height, width-1, CV_8UC3);
-    remove_pixels(image, output, seam);
-    image = output;
+    // Store the seam in this array.
+    int* path = new int[height];
+    path[height-1] = min_col;
 
-    // Result
-    int new_min = *min_element(seam, seam+height);
-    int new_max = *max_element(seam, seam+height);
-    return make_tuple(new_min, new_max);
+    // Keep appending the minimum energy from above.
+    int col = min_col;
+    for (int row = height-1; row > 0; row--) {
+
+        // Left-most column.
+        if (col == 0) {
+            if (dp[row-1][col] < dp[row-1][col+1]) {
+                path[row-1] = col;
+            } else {
+                path[row-1] = col + 1;
+            }
+
+        // Right-most column.
+        } else if (col == width - 1) {
+            if (dp[row-1][col] < dp[row-1][col-1]) {
+                path[row-1] = col;
+            } else {
+                path[row-1] = col - 1;
+            }
+
+        // All other cases.
+        } else {
+            int diff = dp[row][col] - (int)energy_map.at<uchar>(row, col);
+
+            // We prioritize the middle because it's in the same time frame.
+            if (dp[row-1][col] == diff) {
+                path[row-1] = col;
+            } else if (dp[row-1][col-1] == diff) {
+                path[row-1] = col - 1;
+            } else {
+                path[row-1] = col + 1;
+            }
+        }
+    }
+
+    return path;
 }
 
 /**
- * Seam-carves the {video} to fit the {target_depth}.
+ * Given a frame of pixels, identifies and returns the min-energy seam.
  *
- * @param video - The video to be seam-carved.
- * @param width - The width of the video.
- * @param depth - The depth (length in time) of the video.
- * @param target_depth - The new depth (length in time) of the video.
+ * @param frame - A matrix reference of the frame.
+ * @return An array of integers (which column to cut) representing a seam.
  */
-void seam_carve_video(Mat* video, int width, int depth, int target_depth) {
-    assert(depth >= target_depth);
-    int min = 0;
-    int max = depth;
-    for (int left = depth; left > target_depth; left--) {
-        for (int i = 0; i < width; i++) {
-            tie(min, max) = remove_seam(video[i], min, max);
+int* find_seam_of_frame(Mat &frame) {
+
+    //TODO: Might have to make it Mat& ^^^^
+
+    // Make it gray scale first
+    Mat gray_frame;
+    cvtColor(frame, gray_frame, COLOR_BGR2GRAY);
+
+    // Run through energy function
+    Mat energy_map;
+    energy_function(gray_frame, energy_map);
+
+    return find_min_cut(energy_map);
+}
+
+
+
+/**
+ * Seam-carves the input video to fit the target depth.
+ *
+ * @param vid - The video to be seam-carved.
+ * @param w - The width of the video.
+ * @param h - The height of the video.
+ * @param d - The depth (length in time) of the video.
+ * @param target_d - The new depth (length in time) of the video.
+ */
+void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
+    assert(d >= target_d);
+
+    // Arrays to store seam information
+    int* avg_seam = new int[h];
+    int** all_seams = new int*[d];
+    for(int i = 0; i < d; ++i) {
+        all_seams[i] = new int[h];
+    }
+
+    // Repeat until video is shortened to target_d.
+    for (int curr_d = d; curr_d > target_d; curr_d--) {
+
+        // Go through each frame finding seams.
+        for (int frame = 0; frame < w; frame++) {
+            int* min_seam = find_seam_of_frame(vid[frame]);
+
+            // Sum up the seams to calculate average later.
+            for (int row = 0; row < h; row++) {
+                avg_seam[row] += min_seam[row];
+            }
         }
 
-        min = 0;
-        max = depth;
+        // Find the average value of cols that has seams.
+        for (int row = 0; row < h; row++) {
+            avg_seam[row] = avg_seam[row] / w;
+        }
+
+        // Identify one frame with a seam closest to the average seam.
+        int radix_frame = identify_closest_seam(all_seams, avg_seam);
+
+        // Remove seams from frames after the radix
+        int* prev_seam = all_seams[radix_frame];
+        for (int frame = radix_frame; frame < w; frame++) {
+            remove_seam(vid[frame], prev_seam);
+        }
+
+        // Remove seams from frames before the radix
+        prev_seam = all_seams[radix_frame];
+        for (int frame = radix_frame; frame > -1; frame--) {
+            if (frame == radix_frame) continue;
+            remove_seam(vid[frame], prev_seam);
+        }
     }
+
+    delete[] avg_seam;
+    delete[] all_seams;
 }
 
 //--------------------------------------//
@@ -231,7 +275,7 @@ void reverse_rotate_vid(Mat* input, Mat* output, int w, int h, int d) {
  * @param d - The depth of the exported video.
  * @param t - The title of the exported video.
  */
-void export_video(Mat* vid, int fps, int w, int h, int d, const String& t) {
+void export_video(Mat* vid, int fps, int w, int h, int d, const String &t) {
     VideoWriter out(
         t, VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(w, h)
     );
@@ -278,7 +322,7 @@ VideoCapture parse_input(int argc, char** argv) {
  * @param header - A message explaining the purpose of the split time.
  * @return The new start time of the next split.
  */
-time_t take_split_time(time_t start_time, const String& header) {
+time_t take_split_time(time_t start_time, const String &header) {
     double duration = (clock() - start_time) / (double)CLOCKS_PER_SEC;
     cout << header << ": " << duration << endl;
     return clock();
@@ -313,16 +357,18 @@ int main(int argc, char** argv) {
 
     // CP: Finished rotating video, start carving.
     start_time = take_split_time(start_time, "Rotated video");
-    seam_carve_video(rotated_vid, width, depth, target_depth);
+    seam_carve_video(rotated_vid, height, width, depth, target_depth);
 
     // CP: Finished carving video, start re-rotating.
     start_time = take_split_time(start_time, "Carved video");
     Mat* final_vid = init_video_prism(width, height, target_depth);
     reverse_rotate_vid(rotated_vid, final_vid, target_depth, height, width);
+    delete[] rotated_vid;
 
     // CP: Finished re-rotating video, start exporting.
     start_time = take_split_time(start_time, "Re-rotated video");
     export_video(final_vid, fps, width, height, target_depth, "out.avi");
+    delete[] final_vid;
 
     // CP: Finished writing video to file.
     take_split_time(start_time, "Exported video");
