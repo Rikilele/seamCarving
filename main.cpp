@@ -221,19 +221,24 @@ void reverse_rotate_vid(Mat* input, Mat* output, int w, int h, int d) {
     }
 }
 
-void export_video(Mat* vid, int fps, int w, int h, int d) {
+/**
+ * Compiles and exports the input prism matrix as an avi formatted video.
+ *
+ * @param vid - The video represented as a prism matrix.
+ * @param fps - The fps of the exported video.
+ * @param w - The width of the exported video.
+ * @param h - The height of the exported video.
+ * @param d - The depth of the exported video.
+ * @param t - The title of the exported video.
+ */
+void export_video(Mat* vid, int fps, int w, int h, int d, const String& t) {
     VideoWriter out(
-        "out.avi", VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(w, h)
+        t, VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(w, h)
     );
 
     for (int i = 0; i < d; i++) {
         Mat frame = vid[i];
-
-        // If the frame is empty, break immediately
-        if (frame.empty())
-            break;
-
-        // Write the frame into the file 'out.avi'
+        if (frame.empty()) break;
         out.write(frame);
     }
 
@@ -273,7 +278,7 @@ VideoCapture parse_input(int argc, char** argv) {
  * @param header - A message explaining the purpose of the split time.
  * @return The new start time of the next split.
  */
-time_t take_split_time(time_t start_time, const String &header) {
+time_t take_split_time(time_t start_time, const String& header) {
     double duration = (clock() - start_time) / (double)CLOCKS_PER_SEC;
     cout << header << ": " << duration << endl;
     return clock();
@@ -304,6 +309,7 @@ int main(int argc, char** argv) {
     start_time = take_split_time(start_time, "Opened video capture");
     Mat* rotated_vid = init_video_prism(depth, height, width);
     rotate_vid(cap, rotated_vid, width, height, depth);
+    cap.release();
 
     // CP: Finished rotating video, start carving.
     start_time = take_split_time(start_time, "Rotated video");
@@ -316,10 +322,9 @@ int main(int argc, char** argv) {
 
     // CP: Finished re-rotating video, start exporting.
     start_time = take_split_time(start_time, "Re-rotated video");
-    export_video(final_vid, fps, width, height, target_depth);
+    export_video(final_vid, fps, width, height, target_depth, "out.avi");
 
     // CP: Finished writing video to file.
     take_split_time(start_time, "Exported video");
-    cap.release();
     return 0;
 }
