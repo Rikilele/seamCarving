@@ -3,11 +3,14 @@
 #include <opencv2/imgproc.hpp>
 #include <iostream>
 #include <algorithm>
-
+#include <ctime>
 
 using namespace cv;
 using namespace std;
 
+//-------------------------------//
+// Seam carving helper functions //
+//-------------------------------//
 
 void energy_function(Mat &image, Mat &output) {
     Mat dx, dy;
@@ -22,17 +25,21 @@ void energy_function(Mat &image, Mat &output) {
     output.convertTo(output, CV_8U);
 }
 
-
 int* find_seam(Mat &image, int min_col, int max_col) {
+    int tolerance = 0;
     int H = image.rows, W = image.cols;
+    int left = (min_col > tolerance) ? min_col - tolerance : 0;
+    int right = (max_col < W - tolerance) ? max_col + tolerance : W;
 
-    int dp[H][W];
-    for(int c = 0; c < W; c++) {
+    // Get energy for first row
+    int dp[H][max_col+tolerance*2];
+    for(int c = left; c < right; c++) {
         dp[0][c] = (int)image.at<uchar>(0, c);
     }
 
+    // Sift energy down
     for(int r = 1; r < H; r++) {
-        for(int c = 0; c < W; c++){
+        for(int c = left; c < right; c++){
             if (c == 0)
                 dp[r][c] = min(dp[r-1][c+1], dp[r-1][c]);
             else if (c == W-1)
@@ -45,32 +52,33 @@ int* find_seam(Mat &image, int min_col, int max_col) {
 
     int min_value = 2147483647; // Infinity
     int min_index = -1;
-    for(int c = 0; c < W; c++)
-        if (dp[H-1][c] < min_value) {
+    for(int c = left; c < right; c++) {
+        if (dp[H - 1][c] < min_value) {
             min_value = dp[H - 1][c];
             min_index = c;
         }
+    }
 
     int path[H];
     Point pos(H-1, min_index);
     path[pos.x] = pos.y;
 
-    while (pos.x != 0){
+    while (pos.x != 0) {
         int value = dp[pos.x][pos.y] - (int)image.at<uchar>(pos.x, pos.y);
         int r = pos.x, c = pos.y;
-        if (c == 0){
+        if (c == 0) {
             if (value == dp[r-1][c+1])
                 pos = Point(r-1, c+1);
             else
                 pos = Point(r-1, c);
         }
-        else if (c == W-1){
+        else if (c == W-1) {
             if (value == dp[r-1][c-1])
                 pos = Point(r-1, c-1);
             else
                 pos = Point(r-1, c);
         }
-        else{
+        else {
             if (value == dp[r-1][c-1])
                 pos = Point(r-1, c-1);
             else if (value == dp[r-1][c+1])
@@ -84,7 +92,6 @@ int* find_seam(Mat &image, int min_col, int max_col) {
     return path;
 }
 
-
 void remove_pixels(Mat& image, Mat& output, int* seam) {
     for (int r = 0; r < image.rows; r++ ) {
         for (int c = 0; c < image.cols; c++){
@@ -96,7 +103,6 @@ void remove_pixels(Mat& image, Mat& output, int* seam) {
     }
 }
 
-
 /**
  * @param image - The image to remove a seam from
  * @param min - The minimum col of the previous iteration
@@ -104,6 +110,7 @@ void remove_pixels(Mat& image, Mat& output, int* seam) {
  * @return - Tuple of new min and max cols from this iteration
  */
 tuple<int, int> remove_seam(Mat& image, int min, int max) {
+
     int height = image.rows;
     int width = image.cols;
 
@@ -114,6 +121,7 @@ tuple<int, int> remove_seam(Mat& image, int min, int max) {
     // Run through energy function
     Mat emap;
     energy_function(gray, emap);
+
     int* seam = find_seam(emap, min, max);
 
     // Set up output matrix
@@ -127,104 +135,191 @@ tuple<int, int> remove_seam(Mat& image, int min, int max) {
     return make_tuple(new_min, new_max);
 }
 
-
-void rotate_vid(VideoCapture vid, Mat* output, int width, int height, int depth) {
-    for (int z = 0; z < depth; z++) {
-        Mat frame;
-        vid >> frame;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                output[width-x-1].at<Vec3b>(y, z) = frame.at<Vec3b>(y, x);
-            }
-        }
-    }
-}
-
-
-void reverse_rotate_vid(Mat* input, Mat* output, int width, int height, int depth) {
-    for (int z = 0; z < depth; z++) {
-        Mat frame = input[z];
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-//                cout << "x: " << x << " y: " << y << " z: " << depth-z-1 << endl;
-                output[x].at<Vec3b>(y, depth-z-1) = frame.at<Vec3b>(y, x);
-            }
-        }
-    }
-}
-
-
-int main(int argc, char** argv) {
-    // Check command line arguments
-    if (argc < 2) {
-        cerr << "Usage: ./seamCarving <VIDEO_FILE>" << endl;
-        return 1;
-    }
-
-    // Open the video file
-    VideoCapture cap(argv[1]);
-
-    // Check if media opened successfully
-    if(!cap.isOpened()){
-        cout << "Error opening video stream or file" << endl;
-        return -1;
-    }
-
-    // Calculate necessary info
-    int fps = ceil(cap.get(CAP_PROP_FPS));
-    int width = ceil(cap.get(CAP_PROP_FRAME_WIDTH));
-    int height = ceil(cap.get(CAP_PROP_FRAME_HEIGHT));
-    int depth = ceil(cap.get(CAP_PROP_FRAME_COUNT));
-    int target = depth * 2 / 3;
-
-    cout << "W: " << width << " H: " << height << " D: " << depth << " T: " << target << endl;
-
-    // Initialize new video data structure
-    Mat* rotated_vid = new Mat[width];
-    for (int i = 0; i < width; i++) {
-        rotated_vid[i] = Mat(height, depth, CV_8UC3);
-    }
-
-    rotate_vid(cap, rotated_vid,  width, height, depth);
-
-    /*
-     * For each seam to be removed,
-     * go through each frame to identify a seam
-     * while incrementally restricting the band width
-     */
+/**
+ * Seam-carves the {video} to fit the {target_depth}.
+ *
+ * @param video - The video to be seam-carved.
+ * @param width - The width of the video.
+ * @param depth - The depth (length in time) of the video.
+ * @param target_depth - The new depth (length in time) of the video.
+ */
+void seam_carve_video(Mat* video, int width, int depth, int target_depth) {
+    assert(depth >= target_depth);
     int min = 0;
     int max = depth;
-    for (int left = depth; left > target; left--) {
+    for (int left = depth; left > target_depth; left--) {
         for (int i = 0; i < width; i++) {
-            Mat frame = rotated_vid[i];
-            tie(min, max) = remove_seam(frame, min, max);
+            tie(min, max) = remove_seam(video[i], min, max);
+        }
+
+        min = 0;
+        max = depth;
+    }
+}
+
+//--------------------------------------//
+// Pre-post processing helper functions //
+//--------------------------------------//
+
+/**
+ * Initializes and returns a prism matrix that can represent a video.
+ *
+ * @param w - The width of the prism.
+ * @param h - The height of the prism.
+ * @param d - The depth of the prism.
+ * @return The prism matrix with specified dimensions.
+ */
+Mat* init_video_prism(int w, int h, int d) {
+    Mat* cube = new Mat[d];
+    for (int i = 0; i < d; i++) {
+        cube[i] = Mat(h, w, CV_8UC3);
+    }
+
+    return cube;
+}
+
+/**
+ * Read an {input} VideoCapture into a prism matrix {output},
+ * but rotated about the height axis clockwise.
+ *
+ * @param input - The VideoCapture object to read the video from.
+ * @param output - The rotated video represented as a prism matrix.
+ * @param w - The width of the input video.
+ * @param h - The height of the input video.
+ * @param d - The depth of the input video.
+ */
+void rotate_vid(VideoCapture input, Mat* output, int w, int h, int d) {
+    for (int z = 0; z < d; z++) {
+        Mat frame;
+        input >> frame;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                output[w-x-1].at<Vec3b>(y, z) = frame.at<Vec3b>(y, x);
+            }
         }
     }
+}
 
-    cout << "W: " << target << " H: " << height << " D: " << width << endl;
-
-    // Initialize final video data structure
-    Mat* final_vid = new Mat[target];
-    for (int i = 0; i < target; i++) {
-        final_vid[i] = Mat(height, width, CV_8UC3);
+/**
+ * Rotate the {input} prism matrix anti-clockwise on the height axis,
+ * and store the result in the {output} prism matrix.
+ *
+ * @param input - The input prism matrix.
+ * @param output - The output prism matrix.
+ * @param w - The width of the input video.
+ * @param h - The height of the input video.
+ * @param d - The depth of the input video.
+ */
+void reverse_rotate_vid(Mat* input, Mat* output, int w, int h, int d) {
+    for (int z = 0; z < d; z++) {
+        Mat frame = input[z];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                output[x].at<Vec3b>(y, d-z-1) = frame.at<Vec3b>(y, x);
+            }
+        }
     }
+}
 
-    reverse_rotate_vid(rotated_vid, final_vid, target, height, width);
+void export_video(Mat* vid, int fps, int w, int h, int d) {
+    VideoWriter out(
+        "out.avi", VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(w, h)
+    );
 
-    // Produce output video as .avi
-    VideoWriter video("out.avi", VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, Size(width, height));
-    for (int i = 0; i < target; i++) {
-        Mat frame = final_vid[i];
+    for (int i = 0; i < d; i++) {
+        Mat frame = vid[i];
 
         // If the frame is empty, break immediately
         if (frame.empty())
             break;
 
         // Write the frame into the file 'out.avi'
-        video.write(frame);
+        out.write(frame);
     }
 
+    out.release();
+}
+
+//-----------------------------//
+// Logistical helper functions //
+//-----------------------------//
+
+/**
+ * Parses command line argument from main()
+ * and returns corresponding VideoCapture object.
+ * @param argc - Passed in from main().
+ * @param argv - Passed in from main().
+ * @return The VideoCapture object derived from the command line argument.
+ */
+VideoCapture parse_input(int argc, char** argv) {
+    if (argc < 2) {
+        cerr << "Usage: ./seamCarving <VIDEO_FILE>" << endl;
+        exit(1);
+    }
+
+    VideoCapture cap(argv[1]);
+    if(!cap.isOpened()) {
+        cerr << "Error opening video stream or file" << endl;
+        exit(-1);
+    }
+
+    return cap;
+}
+
+/**
+ * Given a {start_time}, calculates and prints the split time.
+ *
+ * @param start_time - The start time of the split.
+ * @param header - A message explaining the purpose of the split time.
+ * @return The new start time of the next split.
+ */
+time_t take_split_time(time_t start_time, const String &header) {
+    double duration = (clock() - start_time) / (double)CLOCKS_PER_SEC;
+    cout << header << ": " << duration << endl;
+    return clock();
+}
+
+//---------------//
+// Main function //
+//---------------//
+
+/**
+ * Increases playback speed of a video specified in the first command-line
+ * argument by 1.5x, using a 3D seam-carving algorithm.
+ *
+ * Outputs the split time between major operations within the program.
+ */
+int main(int argc, char** argv) {
+
+    // CP: Start of processing, open connection to video.
+    clock_t start_time = clock();
+    VideoCapture cap = parse_input(argc, argv);
+    int fps = ceil(cap.get(CAP_PROP_FPS));
+    int width = ceil(cap.get(CAP_PROP_FRAME_WIDTH));
+    int height = ceil(cap.get(CAP_PROP_FRAME_HEIGHT));
+    int depth = ceil(cap.get(CAP_PROP_FRAME_COUNT));
+    int target_depth = depth * 2 / 3;
+
+    // CP: Finished opening connection to video, start rotating.
+    start_time = take_split_time(start_time, "Opened video capture");
+    Mat* rotated_vid = init_video_prism(depth, height, width);
+    rotate_vid(cap, rotated_vid, width, height, depth);
+
+    // CP: Finished rotating video, start carving.
+    start_time = take_split_time(start_time, "Rotated video");
+    seam_carve_video(rotated_vid, width, depth, target_depth);
+
+    // CP: Finished carving video, start re-rotating.
+    start_time = take_split_time(start_time, "Carved video");
+    Mat* final_vid = init_video_prism(width, height, target_depth);
+    reverse_rotate_vid(rotated_vid, final_vid, target_depth, height, width);
+
+    // CP: Finished re-rotating video, start exporting.
+    start_time = take_split_time(start_time, "Re-rotated video");
+    export_video(final_vid, fps, width, height, target_depth);
+
+    // CP: Finished writing video to file.
+    take_split_time(start_time, "Exported video");
     cap.release();
-    video.release();
     return 0;
 }
