@@ -52,15 +52,15 @@ int* find_min_cut(Mat &energy_map){
     // Sift energy down.
     for (int r = 1; r < height; r++) {
         for(int c = 0; c < width; c++) {
-            dp[r][c] += (int)energy_map.at<uchar>(r, c);
+            dp[r][c] = dp[r][c] + (int)energy_map.at<uchar>(r, c);
 
             // Add minimum energy from relevant cols above.
             if (c == 0) {
-                dp[r][c] += min(dp[r-1][c+1], dp[r-1][c]);
+                dp[r][c] = dp[r][c] + min(dp[r-1][c+1], dp[r-1][c]);
             } else if (c == width - 1) {
-                dp[r][c] += min(dp[r-1][c-1], dp[r-1][c]);
+                dp[r][c] = dp[r][c] + min(dp[r-1][c-1], dp[r-1][c]);
             } else {
-                dp[r][c] += min({dp[r-1][c-1], dp[r-1][c], dp[r-1][c+1]});
+                dp[r][c] = dp[r][c] + min({dp[r-1][c-1], dp[r-1][c], dp[r-1][c+1]});
             }
         }
     }
@@ -169,10 +169,10 @@ void remove_seam(Mat &frame, const int* seam) {
 float calc_seam_diff(int* a, int* b, int size) {
     float sum = 0;
     for (int i = 0; i < size; i++) {
-        sum += sqrt(pow(a[i] - b[i], 2));
+        sum = sum + pow(a[i] - b[i], 2);
     }
 
-    return sum;
+    return sqrt(sum);
 }
 
 /**
@@ -375,23 +375,31 @@ void export_video(Mat* vid, int fps, int w, int h, int d, const String &t) {
 void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
     assert(d >= target_d);
 
-    // Arrays to store seam information
+    // Init arrays to store seam information
     int* avg_seam = new int[h];
     int** all_seams = new int*[w];
-    for(int i = 0; i < w; ++i) {
+    for (int i = 0; i < w; i++) {
         all_seams[i] = new int[h];
     }
 
     // Repeat until video is shortened to target_d.
     for (int curr_d = d; curr_d > target_d; curr_d--) {
 
+        // Reset avg_seam
+        for (int i = 0; i < h; i++) {
+            avg_seam[i] = 0;
+        }
+
+        cout << "-------- LEFT: " << curr_d << " ----------" << endl;
+
         // Go through each frame finding seams.
         for (int frame = 0; frame < w; frame++) {
             int* min_seam = find_seam_of_frame(vid[frame]);
+            all_seams[frame] = min_seam;
 
             // Sum up the seams to calculate average later.
             for (int row = 0; row < h; row++) {
-                avg_seam[row] += min_seam[row];
+                avg_seam[row] = avg_seam[row] + min_seam[row];
             }
         }
 
@@ -405,6 +413,12 @@ void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
 
         // Remove the seam from the radix.
         int* cut_seam = all_seams[radix_frame];
+
+        // PRINT THE CUT SEAM
+        for (int i = 0; i < h; i++) {
+//            cout << avg_seam[i] << endl;
+        }
+
         remove_seam(vid[radix_frame], cut_seam);
 
         // Remove seams from frames before the radix
@@ -460,6 +474,8 @@ int main(int argc, char** argv) {
     // CP: Finished rotating video, start carving.
     start_time = take_split_time(start_time, "Rotated video");
     seam_carve_video(rotated_vid, height, width, depth, target_depth);
+
+    cout << "DONE: " << rotated_vid->rows << "  " << rotated_vid->cols << endl;
 
     // CP: Finished carving video, start re-rotating.
     start_time = take_split_time(start_time, "Carved video");
