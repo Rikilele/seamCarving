@@ -405,6 +405,7 @@ void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
 
         // Find the average value of cols that has seams.
         for (int row = 0; row < h; row++) {
+            cout << avg_seam[row] << endl;
             avg_seam[row] = avg_seam[row] / w;
         }
 
@@ -413,11 +414,6 @@ void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
 
         // Remove the seam from the radix.
         int* cut_seam = all_seams[radix_frame];
-
-        // PRINT THE CUT SEAM
-        for (int i = 0; i < h; i++) {
-//            cout << avg_seam[i] << endl;
-        }
 
         remove_seam(vid[radix_frame], cut_seam);
 
@@ -463,7 +459,7 @@ int main(int argc, char** argv) {
     int depth = ceil(cap.get(CAP_PROP_FRAME_COUNT));
     int target_depth = depth * 2 / 3;
 
-    cout << width << " " << height << " " << depth << endl;
+    cout << "w:" << width << " h:" << height << " d:" << depth << endl;
 
     // CP: Finished opening connection to video, start rotating.
     start_time = take_split_time(start_time, "Opened video capture");
@@ -473,7 +469,7 @@ int main(int argc, char** argv) {
 
     // CP: Finished rotating video, start carving.
     start_time = take_split_time(start_time, "Rotated video");
-    seam_carve_video(rotated_vid, height, width, depth, target_depth);
+    seam_carve_video(rotated_vid, width, height, depth, target_depth);
 
     cout << "DONE: " << rotated_vid->rows << "  " << rotated_vid->cols << endl;
 
