@@ -42,7 +42,6 @@ void energy_function(Mat &frame, Mat &output) {
 int* find_min_cut(Mat &energy_map) {
     int height = energy_map.rows;
     int width = energy_map.cols;
-//    cout << "h: " << height << " w: " << width << endl;
 
     // Fill energy for first row.
     int dp[height][width];
@@ -86,18 +85,14 @@ int* find_min_cut(Mat &energy_map) {
 
         // Left-most column.
         if (col == 0) {
-            if (dp[row-1][col] < dp[row-1][col+1]) {
-                path[row-1] = col;
-            } else {
-                path[row-1] = col + 1;
+            if (dp[row-1][col] > dp[row-1][col+1]) {
+                col = col + 1;
             }
 
         // Right-most column.
         } else if (col == width - 1) {
-            if (dp[row-1][col] < dp[row-1][col-1]) {
-                path[row-1] = col;
-            } else {
-                path[row-1] = col - 1;
+            if (dp[row-1][col] > dp[row-1][col-1]) {
+                col = col - 1;
             }
 
         // All other cases.
@@ -106,13 +101,15 @@ int* find_min_cut(Mat &energy_map) {
 
             // We prioritize the middle because it's in the same time frame.
             if (dp[row-1][col] == diff) {
-                path[row-1] = col;
+                col = col;
             } else if (dp[row-1][col-1] == diff) {
-                path[row-1] = col - 1;
+                col = col - 1;
             } else {
-                path[row-1] = col + 1;
+                col = col + 1;
             }
         }
+
+        path[row-1] = col;
     }
 
     return path;
@@ -418,7 +415,7 @@ void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
         int* cut_seam = all_seams[radix_frame];
 
         vid[radix_frame] = remove_seam(vid[radix_frame], cut_seam);
-        cout << "RADIX: " << radix_frame << endl;
+//        cout << "RADIX: " << radix_frame << endl;
 
         // Remove seams from frames before the radix
         Mat frame;
