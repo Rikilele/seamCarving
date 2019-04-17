@@ -220,12 +220,12 @@ int* find_incremental_seam(Mat &frame, const int* prev_seam) {
 
         // Cross out columns before "no-touch"
         for (int c = 0; c < left_bound; c++) {
-            energy_map.at<uchar>(r, c) = (uchar)2147483647;
+            energy_map.at<uchar>(r, c) = (uchar)INT_MAX;
         }
 
         // Cross out columns after "no-touch"
         for (int c = right_bound + 1; c < energy_map.cols; c++) {
-            energy_map.at<uchar>(r, c) = (uchar)2147483647;
+            energy_map.at<uchar>(r, c) = (uchar)INT_MAX;
         }
     }
 
@@ -415,12 +415,10 @@ void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
         int* cut_seam = all_seams[radix_frame];
 
         vid[radix_frame] = remove_seam(vid[radix_frame], cut_seam);
-//        cout << "RADIX: " << radix_frame << endl;
 
         // Remove seams from frames before the radix
         Mat frame;
         for (int i = radix_frame - 1; i >= 0; i--) {
-//            cout << i << endl;
             cut_seam = find_incremental_seam(vid[i], cut_seam);
             vid[i] = remove_seam(vid[i], cut_seam);
         }
@@ -428,7 +426,6 @@ void seam_carve_video(Mat* vid, int w, int h, int d, int target_d) {
         // Remove seams from frames after the radix
         cut_seam = all_seams[radix_frame];
         for (int i = radix_frame + 1; i < w; i++) {
-//            cout << i << endl;
             cut_seam = find_incremental_seam(vid[i], cut_seam);
             vid[i] = remove_seam(vid[i], cut_seam);
         }
